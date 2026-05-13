@@ -354,9 +354,11 @@ DEFINE STR_X2_[X3,40]        621400f9
 DEFINE STR_X2_[X9]           220100f9
 DEFINE STR_X3_[X0,16]        030800f9
 DEFINE STR_X3_[X0,32]        031000f9
+DEFINE STR_X3_[X3,40]        631400f9
 DEFINE STR_X3_[X4,24]        830c00f9
 DEFINE STR_X3_[X9]           230100f9
 DEFINE STR_X4_[X3,24]        640c00f9
+DEFINE STR_X4_[X4,40]        841400f9
 DEFINE STR_X5_[X3,32]        651000f9
 DEFINE STR_X5_[X4,32]        851000f9
 DEFINE STR_X11_[X0]          0b0000f9
@@ -742,6 +744,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &C
     LDR_X0_[X9]
+    CMP_X0_TO_MINUS_4                   # Check for EOF
+    SKIP_INST_NE                        # Stop if the comment was not closed
+    ^~reset RBRANCH
     CMP_X0_TO_47                        # IF '/' != C
     SKIP_INST_NE                        # be done
     ^~get_token_comment_block_done FBRANCH
@@ -751,6 +756,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &C
     LDR_X0_[X9]
+    CMP_X0_TO_MINUS_4                   # Check for EOF
+    SKIP_INST_NE                        # Stop if the comment was not closed
+    ^~reset RBRANCH
     CMP_X0_TO_42                        # IF '*' != C
     SKIP_INST_NE                        # jump over
     ^~get_token_comment_block_iter FBRANCH
@@ -911,9 +919,13 @@ DEFINE RBRANCH 17
     PUSH_LR
 :purge_macro_loop
     ^~fgetc FCALL                       # read next char
+    CMP_X0_TO_MINUS_4                   # Check for EOF
+    SKIP_INST_NE                        # Done if EOF
+    ^~purge_macro_done FBRANCH
     CMP_X0_TO_10                        # Check for '\n'
     SKIP_INST_EQ                        # Keep going
     ^~purge_macro_loop RBRANCH
+:purge_macro_done
     POP_LR
     RETURN
 
@@ -1018,6 +1030,9 @@ DEFINE RBRANCH 17
 
 :consume_word_iter
     ^~consume_byte FCALL                # read next char
+    CMP_X0_TO_MINUS_4                   # Check for EOF
+    SKIP_INST_NE                        # Stop if the string was not closed
+    ^~consume_word_done FBRANCH
 
     CMP_X2_TO_0                         # IF ESCAPE
     SKIP_INST_EQ                        # keep looping
@@ -1027,6 +1042,7 @@ DEFINE RBRANCH 17
     SKIP_INST_EQ                        # keep going
     ^~consume_word_loop RBRANCH
 
+:consume_word_done
     ^~fgetc FCALL                       # return next char
     POP_X2                              # Restore X2
     POP_X1                              # Restore X1
@@ -1255,6 +1271,7 @@ DEFINE RBRANCH 17
     ^~require_match FCALL               # Require match and skip
 
 :enumerator
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -1290,6 +1307,7 @@ DEFINE RBRANCH 17
     &equal
     ^~require_match FCALL               # Require match and skip
 
+    ^~require_global_token FCALL        # Ensure enum value exists
     LOAD_W9_AHEAD                       # global_constant_list
     SKIP_32_DATA
     &global_constant_list
@@ -1309,6 +1327,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X0_[X9]
+    CMP_X0_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Let enum_end report missing }
+    ^~enum_end FBRANCH
 
     LDR_X1_[X0,16]                      # GLOBAL_TOKEN->S
     LOAD_W0_AHEAD                       # ","
@@ -1329,6 +1350,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X0_[X9]
+    CMP_X0_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Let enum_end report missing }
+    ^~enum_end FBRANCH
 
     LDR_X1_[X0,16]                      # GLOBAL_TOKEN->S
     LOAD_W0_AHEAD                       # "}"
@@ -1363,6 +1387,7 @@ DEFINE RBRANCH 17
     CMP_X0_TO_0                         # IF NULL == type_size
     SKIP_INST_NE                        # it was a new type
     ^~new_type RBRANCH
+    ^~require_global_token FCALL        # Missing declarator
 
     # Add to global symbol table
     SET_X1_FROM_X0                      # put type_size in the right spot
@@ -1389,6 +1414,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X1_[X9]
+    CMP_X1_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Missing ; or function body
+    ^~program_error FBRANCH
 
     LOAD_W9_AHEAD                       # Using global token
     SKIP_32_DATA
@@ -1505,6 +1533,7 @@ DEFINE RBRANCH 17
     STR_X0_[X9]
 
     ^~collect_arguments FCALL           # collect all of the function arguments
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
 
     LOAD_W9_AHEAD                       # Using global token
     SKIP_32_DATA
@@ -1608,6 +1637,7 @@ DEFINE RBRANCH 17
     &global_token
     STR_X0_[X9]
 :collect_arguments_loop
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -1624,6 +1654,7 @@ DEFINE RBRANCH 17
     # deal with the case of there are arguments
     ^~type_name FCALL                   # Get the type
     SET_X2_FROM_X0                      # put type_size safely out of the way
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
 
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
@@ -1710,6 +1741,7 @@ DEFINE RBRANCH 17
     STR_X2_[X0,32]                      # function->args = a
 
 :collect_arguments_common
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -1757,6 +1789,7 @@ DEFINE RBRANCH 17
 # Walks down global_token recursively to collect the contents of the function
 :statement
     PUSH_LR
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
     PUSH_X2                             # Protect X2
 
@@ -1919,6 +1952,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X0_[X9]
+    CMP_X0_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Require a label after goto
+    ^~Exit_Failure FBRANCH
 
     LDR_X0_[X0,16]                      # global_token->S
     ^~emit_out FCALL                    # emit it
@@ -2055,6 +2091,7 @@ DEFINE RBRANCH 17
     LDR_X2_[X2,8]                       # frame = function->locals
 
 :recursive_statement_loop
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -2145,6 +2182,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X0_[X9]
+    CMP_X0_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Missing ; will be reported below
+    ^~return_result_cleanup FBRANCH
 
     LDR_X0_[X0,16]                      # global_token->S
     LDR_BYTE_W0_[X0]                    # global_token->S[0]
@@ -2155,6 +2195,7 @@ DEFINE RBRANCH 17
     ^~expression FCALL                  # get the expression we are returning
 
 :return_result_cleanup
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     LOAD_W0_AHEAD                       # Using "ERROR in return_result\nMISSING ;\n"
     SKIP_32_DATA
     &return_result_string_0
@@ -2197,9 +2238,11 @@ DEFINE RBRANCH 17
 # Uses X2 for struct token_list* A
 :collect_local
     PUSH_LR
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
     PUSH_X2                             # Protect X2
     ^~type_name FCALL                   # Get the local's type
+    ^~require_global_token FCALL        # Missing local name
 
     SET_X1_FROM_X0                      # Put struct type* type_size in the right place
     LOAD_W9_AHEAD                       # Using global_token
@@ -2335,6 +2378,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X0_[X9]
+    CMP_X0_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Missing ; will be reported below
+    ^~collect_local_done FBRANCH
 
     LDR_X1_[X0,16]                      # global_token->S
     LOAD_W0_AHEAD                       # Using "="
@@ -2416,6 +2462,9 @@ DEFINE RBRANCH 17
     &global_token
     LDR_X1_[X9]
 :process_asm_iter
+    CMP_X1_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Missing ) will be reported below
+    ^~process_asm_done FBRANCH
     LDR_X0_[X1,16]                      # global_token->S
     LDR_BYTE_W0_[X0]                    # global_token->S[0]
     CMP_X0_TO_34                        # IF global_token->S[0] == '\"'
@@ -2571,6 +2620,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     LDR_X1_[X9]
+    CMP_X1_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # No else to process
+    ^~process_if_done FBRANCH
     LDR_X1_[X1,16]                      # global_token->S
     LOAD_W0_AHEAD                       # Using "else"
     SKIP_32_DATA
@@ -2976,6 +3028,7 @@ DEFINE RBRANCH 17
 # Uses X2 for char* NUMBER_STRING
 :process_for
     PUSH_LR
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
     PUSH_X2                             # Protect X2
     ^~save_break_frame RCALL            # Save the frame
@@ -3030,6 +3083,7 @@ DEFINE RBRANCH 17
     &open_paren
     ^~require_match FCALL               # Make Sure we have it
 
+    ^~require_global_token FCALL        # Ensure for body is not EOF
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -3330,6 +3384,7 @@ DEFINE RBRANCH 17
 # Uses X0 and X1 for match and X2 for char* store
 :expression
     PUSH_LR
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
     PUSH_X2                             # Protect X2
     ^~bitwise_expr FCALL                # Collect bitwise expressions
@@ -3766,6 +3821,7 @@ DEFINE RBRANCH 17
 # Uses X0, X1, X2 and X3 for passing constants to general recursion
 :postfix_expr_stub
     PUSH_LR
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
@@ -3871,6 +3927,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &current_target
     LDR_X0_[X9]
+    CMP_X0_TO_0                         # Check for bad target
+    SKIP_INST_NE                        # Cannot subscript unknown target
+    ^~Exit_Failure FBRANCH
     PUSH_X0                             # Protect it
 
     LOAD_W0_AHEAD                       # Using expression
@@ -3883,6 +3942,10 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &current_target
     STR_X1_[X9]
+    LDR_X0_[X1,24]                      # current_target->INDIRECT
+    CMP_X0_TO_0                         # Check for scalar subscript
+    SKIP_INST_NE                        # Arrays require an indirect type
+    ^~Exit_Failure FBRANCH
 
     LOAD_W2_AHEAD                       # ASSIGN = "DEREF_X0\n"
     SKIP_32_DATA
@@ -3915,6 +3978,9 @@ DEFINE RBRANCH 17
     &current_target
     LDR_X0_[X9]
     LDR_X0_[X0,24]                      # current_target->INDIRECT
+    CMP_X0_TO_0                         # Check for scalar subscript
+    SKIP_INST_NE                        # Cannot scale without an indirect type
+    ^~Exit_Failure FBRANCH
     LDR_X0_[X0,8]                       # current_target->INDIRECT->SIZE
     ^~ceil_log2 FCALL                   # ceil_log2(current_target->indirect->size)
     ^~numerate_number FCALL             # numerate_number(ceil_log2(current_target->indirect->size))
@@ -3943,6 +4009,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     LDR_X1_[X9]
+    CMP_X1_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Treat it as not being an assignment
+    ^~postfix_expr_array_done FBRANCH
     LDR_X1_[X1,16]                      # global_token->S
     LOAD_W0_AHEAD                       # Using "="
     SKIP_32_DATA
@@ -4023,12 +4092,18 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X0_[X9]
+    CMP_X0_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Abort on missing member name
+    ^~Exit_Failure FBRANCH
 
     LDR_X1_[X0,16]                      # Using global_token->S
     LOAD_W9_AHEAD                       # Using current_target
     SKIP_32_DATA
     &current_target
     LDR_X0_[X9]
+    CMP_X0_TO_0                         # Check for unknown target
+    SKIP_INST_NE                        # Abort hard
+    ^~Exit_Failure FBRANCH
     ^~lookup_member FCALL               # lookup_member(current_target, global_token->s)
     SET_X1_FROM_X0                      # struct type* I = lookup_member(current_target, global_token->s)
 
@@ -4047,6 +4122,7 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X0_[X9]
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
 
     LDR_X0_[X1,16]                      # I->OFFSET
     CMP_X0_TO_0                         # IF 0 != I->OFFSET
@@ -4079,6 +4155,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     LDR_X0_[X9]
+    CMP_X0_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Treat it as not being an assignment
+    ^~postfix_expr_arrow_load FBRANCH
     LDR_X1_[X0,16]                      # global_token->S
     LOAD_W0_AHEAD                       # Using "="
     SKIP_32_DATA
@@ -4088,6 +4167,7 @@ DEFINE RBRANCH 17
     SKIP_INST_NE                        # Be done
     ^~postfix_expr_arrow_done FBRANCH
 
+:postfix_expr_arrow_load
     # Deal with load case
     LOAD_W0_AHEAD                       # Using "DEREF_X0\n"
     SKIP_32_DATA
@@ -4104,6 +4184,7 @@ DEFINE RBRANCH 17
 # Returns nothing
 :primary_expr
     PUSH_LR
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
 
     LOAD_W9_AHEAD                       # Using global_token
@@ -4316,6 +4397,7 @@ DEFINE RBRANCH 17
 # Uses X0 for struct token_list* a and X2 for char* S
 :primary_expr_variable
     PUSH_LR
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
     PUSH_X2                             # Protect X2
     LOAD_W9_AHEAD                       # Using global_token
@@ -4441,6 +4523,7 @@ DEFINE RBRANCH 17
 # Uses X2 for char* S, X3 for int BOOL, X5 for PASSED
 :function_call
     PUSH_LR
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
     PUSH_X2                             # Protect X2
     PUSH_X3                             # Protect X3
@@ -4457,6 +4540,7 @@ DEFINE RBRANCH 17
     &open_paren
     ^~require_match FCALL               # Make sure we have it
 
+    ^~require_global_token FCALL        # Ensure argument list is present
     LOAD_W0_AHEAD                       # Using "PUSH_X16\t# Protect a tmp register we're going to use\n"
     SKIP_32_DATA
     &function_call_string_1
@@ -4497,6 +4581,7 @@ DEFINE RBRANCH 17
     SET_X5_TO_1                         # PASSED = 1
 
 :function_call_gen_iter
+    ^~require_global_token FCALL        # Ensure global_token is not EOF
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -4517,6 +4602,7 @@ DEFINE RBRANCH 17
     &global_token
     STR_X0_[X9]
 
+    ^~require_global_token FCALL        # Ensure argument follows comma
     ^~expression RCALL                  # Collect the argument
 
     LOAD_W0_AHEAD                       # Using "PUSH_X0\t#_process_expression2\n"
@@ -4659,6 +4745,7 @@ DEFINE RBRANCH 17
     PUSH_X2                             # Protect X2
     SET_X2_FROM_X0                      # Protect A
 
+    ^~require_global_token FCALL        # EOF means not a call
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -4711,6 +4798,7 @@ DEFINE RBRANCH 17
     ^~emit_out FCALL                    # Emit it
 
     # Check for special case of assignment
+    ^~require_global_token FCALL        # EOF means not an assignment
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -4746,6 +4834,7 @@ DEFINE RBRANCH 17
     PUSH_X2                             # Protect X2
     LDR_X0_[X0,16]                      # A->S
     SET_X2_FROM_X0                      # Protect A->S
+    ^~require_global_token FCALL        # EOF means not a call
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -4815,6 +4904,7 @@ DEFINE RBRANCH 17
     &global_load_string_1
     ^~emit_out FCALL                    # Emit it
 
+    ^~require_global_token FCALL        # EOF means not an assignment
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -5218,12 +5308,25 @@ DEFINE RBRANCH 17
     RETURN
 
 
+# require_global_token function
+# Aborts if global_token is NULL before callers dereference it
+:require_global_token
+    LOAD_W9_AHEAD                       # Using global_token
+    SKIP_32_DATA
+    &global_token
+    LDR_X0_[X9]
+    CMP_X0_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Abort on EOF
+    ^~Exit_Failure FBRANCH
+    RETURN
+
 # require_match function
 # Receives char* message in X0 and char* required in X1
 # Returns nothing
 # Uses X2 to hold message and updates global_token
 :require_match
     PUSH_LR
+    ^~require_global_token RCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
     PUSH_X2                             # Protect X2
     SET_X2_FROM_X0                      # put the message somewhere safe
@@ -5735,6 +5838,7 @@ DEFINE RBRANCH 17
 # Uses X2 for STRUCT TYPE* RET
 :type_name
     PUSH_LR
+    ^~require_global_token RCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
     PUSH_X2                             # Protect X2
     LOAD_W9_AHEAD                       # Using global_token
@@ -5761,6 +5865,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X1_[X9]
+    CMP_X1_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Abort on missing struct name
+    ^~Exit_Failure FBRANCH
     LDR_X0_[X1,16]                      # global_token->S
     LOAD_W9_AHEAD                       # get all known types
     SKIP_32_DATA
@@ -5815,6 +5922,7 @@ DEFINE RBRANCH 17
     ^~Exit_Failure FBRANCH              # Abort
 
 :type_name_common
+    ^~require_global_token RCALL        # Ensure global_token is not EOF
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -5824,6 +5932,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X1_[X9]
+    CMP_X1_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # No more pointer qualifiers
+    ^~type_name_done FBRANCH
 
 :type_name_iter
     LDR_X0_[X1,16]                      # global_token->S
@@ -5843,6 +5954,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X1_[X9]
+    CMP_X1_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # No more pointer qualifiers
+    ^~type_name_done FBRANCH
     ^~type_name_iter RBRANCH            # keep looping
 
 :type_name_done
@@ -5921,6 +6035,8 @@ DEFINE RBRANCH 17
 
     STR_X4_[X3,24]                      # HEAD->INDIRECT = I
     STR_X3_[X4,24]                      # I->INDIRECT = HEAD
+    STR_X3_[X3,40]                      # HEAD->TYPE = HEAD
+    STR_X4_[X4,40]                      # I->TYPE = I
 
     LOAD_W9_AHEAD                       # Using global_types
     SKIP_32_DATA
@@ -5956,6 +6072,7 @@ DEFINE RBRANCH 17
     SET_X5_TO_0                         # LAST = NULL
 
 :create_struct_iter
+    ^~require_global_token RCALL        # Ensure global_token is not EOF
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -6088,6 +6205,7 @@ DEFINE RBRANCH 17
 # Uses X2 for struct type* member_type and X3 for struct type* I
 :build_member
     PUSH_LR
+    ^~require_global_token RCALL        # Ensure global_token is not EOF
     PUSH_X1                             # Protect X1
     PUSH_X2                             # Protect X2
     PUSH_X3                             # Protect X3
@@ -6101,6 +6219,7 @@ DEFINE RBRANCH 17
     ^~type_name RCALL                   # Get member_type
     SET_X2_FROM_X0                      # Put in place
     STR_X2_[X3,40]                      # I->TYPE = MEMBER_TYPE
+    ^~require_global_token RCALL        # Ensure member name exists
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -6112,6 +6231,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X0_[X9]
+    CMP_X0_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Let caller report missing semicolon
+    ^~build_member_non_array FBRANCH
 
     # Check if we have an array
     LDR_X1_[X0,16]                      # global_token->S
@@ -6123,12 +6245,14 @@ DEFINE RBRANCH 17
     SKIP_INST_NE                        # So deal with that pain
     ^~build_member_array FBRANCH
 
+:build_member_non_array
     # Deal with non-array case
     LDR_X0_[X2,8]                       # member_type->SIZE
     STR_X0_[X3,8]                       # I->SIZE = member_type->SIZE
     ^~build_member_done FBRANCH         # Be done
 
 :build_member_array
+    ^~require_global_token RCALL        # Ensure global_token is not EOF
     LOAD_W9_AHEAD                       # Using global_token
     SKIP_32_DATA
     &global_token
@@ -6138,6 +6262,9 @@ DEFINE RBRANCH 17
     SKIP_32_DATA
     &global_token
     STR_X0_[X9]
+    CMP_X0_TO_0                         # Check for EOF
+    SKIP_INST_NE                        # Require an array size after [
+    ^~Exit_Failure FBRANCH
 
     LDR_X0_[X0,16]                      # global_token->S
     ^~numerate_string FCALL             # convert number

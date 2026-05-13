@@ -242,12 +242,16 @@ get_token_comment:
 get_token_comment_block_outer:
     adr x9, C                   // Using C
     ldr x0, [x9]
+    cmp x0, -4                  // Check for EOF
+    b.eq reset                  // Stop if the comment was not closed
     cmp x0, 47                  // IF '/' != C
     b.eq get_token_comment_block_done   // be done
 
 get_token_comment_block_inner:
     adr x9, C                   // Using C
     ldr x0, [x9]
+    cmp x0, -4                  // Check for EOF
+    b.eq reset                  // Stop if the comment was not closed
     cmp x0, 42                  // IF '*' != C
     b.eq get_token_comment_block_iter   // jump over
 
@@ -382,8 +386,11 @@ purge_macro:
     push x30
 purge_macro_loop:
     bl fgetc                    // read next char
+    cmp x0, -4                  // Check for EOF
+    b.eq purge_macro_done       // Done if EOF
     cmp x0, 10                  // Check for '\n'
     b.ne purge_macro_loop       // Keep going
+purge_macro_done:
     pop x30
     ret
 
@@ -479,6 +486,8 @@ consume_word_escape:
 
 consume_word_iter:
     bl consume_byte             // read next char
+    cmp x0, -4                  // Check for EOF
+    b.eq consume_word_done      // Stop if the string was not closed
 
     cmp x2, 0                   // IF ESCAPE
     b.ne consume_word_loop      // keep looping
@@ -486,6 +495,7 @@ consume_word_iter:
     cmp x0, x1                  // IF C != FREQ
     b.ne consume_word_loop      // keep going
 
+consume_word_done:
     bl fgetc                    // return next char
     pop x2                      // Restore X2
     pop x1                      // Restore X1
@@ -694,6 +704,7 @@ new_type:
     bl require_match               // Require match and skip
 
 enumerator:
+    bl require_global_token       // Ensure global_token is not EOF
     adr x9, global_token           // Using global_token
     ldr x0, [x9]
 
@@ -715,6 +726,7 @@ enumerator:
     adr x1, equal                  // Using "="
     bl require_match               // Require match and skip
 
+    bl require_global_token        // Ensure enum value exists
     adr x9, global_constant_list   // global_constant_list
     ldr x0, [x9]
     adr x9, global_token           // Using global_token
@@ -726,6 +738,8 @@ enumerator:
     ldr x0, [x0]                   // global_token->next
     adr x9, global_token           // global_token = global_token->next
     str x0, [x9]
+    cmp x0, 0                      // Check for EOF
+    b.eq enum_end                  // Let enum_end report missing }
 
     ldr x1, [x0,16]                // GLOBAL_TOKEN->S
     adr x0, comma                  // ","
@@ -739,6 +753,8 @@ enumerator:
     ldr x0, [x0]                   // global_token->next
     adr x9, global_token           // global_token = global_token->next
     str x0, [x9]
+    cmp x0, 0                      // Check for EOF
+    b.eq enum_end                  // Let enum_end report missing }
 
     ldr x1, [x0,16]                // GLOBAL_TOKEN->S
     adr x0, close_curly_brace      // "}"
@@ -761,6 +777,7 @@ program_else:
     bl type_name                // Figure out the type_size
     cmp x0, 0                   // IF NULL == type_size
     b.eq new_type               // it was a new type
+    bl require_global_token     // Missing declarator
 
     // Add to global symbol table
     mov x1, x0                  // put type_size in the right spot
@@ -777,6 +794,8 @@ program_else:
     ldr x1, [x1]                // global_token->next
     adr x9, global_token        // global_token = global_token->next
     str x1, [x9]
+    cmp x1, 0                   // Check for EOF
+    b.eq program_error          // Missing ; or function body
 
     adr x9, global_token        // Using global token
     ldr x1, [x9]
@@ -859,6 +878,7 @@ declare_function:
     str x0, [x9]
 
     bl collect_arguments        // collect all of the function arguments
+    bl require_global_token     // Ensure global_token is not EOF
 
     adr x9, global_token        // Using global token
     ldr x0, [x9]
@@ -932,6 +952,7 @@ collect_arguments:
     adr x9, global_token        // global_token = global_token->next
     str x0, [x9]
 collect_arguments_loop:
+    bl require_global_token       // Ensure global_token is not EOF
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
     ldr x1, [x1,16]             // global_token->S
@@ -943,6 +964,7 @@ collect_arguments_loop:
     // deal with the case of there are arguments
     bl type_name                // Get the type
     mov x2, x0                  // put type_size safely out of the way
+    bl require_global_token     // Ensure global_token is not EOF
 
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
@@ -1004,6 +1026,7 @@ collect_arguments_next:
     str x2, [x0,32]             // function->args = a
 
 collect_arguments_common:
+    bl require_global_token       // Ensure global_token is not EOF
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
     ldr x1, [x1,16]             // global_token->S
@@ -1038,6 +1061,7 @@ collect_arguments_done:
 // Walks down global_token recursively to collect the contents of the function
 statement:
     push x30
+    bl require_global_token       // Ensure global_token is not EOF
     push x1                     // Protect X1
     push x2                     // Protect X2
 
@@ -1156,6 +1180,8 @@ statement_goto:
     ldr x0, [x0]                // global_token->next
     adr x9, global_token        // global_token = global_token->next
     str x0, [x9]
+    cmp x0, 0                   // Check for EOF
+    b.eq Exit_Failure           // Require a label after goto
 
     ldr x0, [x0,16]             // global_token->S
     bl emit_out                 // emit it
@@ -1251,6 +1277,7 @@ recursive_statement:
     ldr x2, [x2,8]              // frame = function->locals
 
 recursive_statement_loop:
+    bl require_global_token       // Ensure global_token is not EOF
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
     ldr x1, [x1,16]             // global_token->S
@@ -1316,6 +1343,8 @@ return_result:
     ldr x0, [x0]                // global_token->next
     adr x9, global_token        // global_token = global_token->next
     str x0, [x9]
+    cmp x0, 0                   // Check for EOF
+    b.eq return_result_cleanup  // Missing ; will be reported below
 
     ldr x0, [x0,16]             // global_token->S
     ldrb w0, [x0]               // global_token->S[0]
@@ -1325,6 +1354,7 @@ return_result:
     bl expression               // get the expression we are returning
 
 return_result_cleanup:
+    bl require_global_token       // Ensure global_token is not EOF
     adr x0, return_result_string_0 // Using "ERROR in return_result\nMISSING //\n"
     adr x1, semicolon           // Using ";"
     bl require_match            // Make sure we have it
@@ -1356,9 +1386,11 @@ return_result_done:
 // Uses X2 for struct token_list* A
 collect_local:
     push x30
+    bl require_global_token       // Ensure global_token is not EOF
     push x1                     // Protect X1
     push x2                     // Protect X2
     bl type_name                // Get the local's type
+    bl require_global_token     // Missing local name
 
     mov x1, x0                  // Put struct type* type_size in the right place
     adr x9, global_token        // Using global_token
@@ -1457,6 +1489,8 @@ collect_local_common:
     ldr x0, [x0]                // global_token->NEXT
     adr x9, global_token        // global_token = global_token->NEXT
     str x0, [x9]
+    cmp x0, 0                   // Check for EOF
+    b.eq collect_local_done     // Missing ; will be reported below
 
     ldr x1, [x0,16]             // global_token->S
     adr x0, equal               // Using "="
@@ -1513,6 +1547,8 @@ process_asm:
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
 process_asm_iter:
+    cmp x1, 0                   // Check for EOF
+    b.eq process_asm_done       // Missing ) will be reported below
     ldr x0, [x1,16]             // global_token->S
     ldrb w0, [x0]               // global_token->S[0]
     cmp x0, 34                  // IF global_token->S[0] == '"'
@@ -1619,6 +1655,8 @@ process_if:
 
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
+    cmp x1, 0                   // Check for EOF
+    b.eq process_if_done        // No else to process
     ldr x1, [x1,16]             // global_token->S
     adr x0, else_string         // Using "else"
     bl match                    // IF global_token->S == "else"
@@ -1904,6 +1942,7 @@ process_while:
 // Uses X2 for char* NUMBER_STRING
 process_for:
     push x30
+    bl require_global_token     // Ensure global_token is not EOF
     push x1                     // Protect X1
     push x2                     // Protect X2
     bl save_break_frame         // Save the frame
@@ -1940,6 +1979,7 @@ process_for:
     adr x1, open_paren          // Using "("
     bl require_match            // Make Sure we have it
 
+    bl require_global_token     // Ensure for body is not EOF
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
     ldr x1, [x1,16]             // global_token->S
@@ -2148,6 +2188,7 @@ process_break_bad:
 // Uses X0 and X1 for match and X2 for char* store
 expression:
     push x30
+    bl require_global_token       // Ensure global_token is not EOF
     push x1                     // Protect X1
     push x2                     // Protect X2
     bl bitwise_expr             // Collect bitwise expressions
@@ -2417,6 +2458,7 @@ postfix_expr:
 // Uses X0, X1, X2 and X3 for passing constants to general recursion
 postfix_expr_stub:
     push x30
+    bl require_global_token       // Ensure global_token is not EOF
     push x1                     // Protect X1
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
@@ -2496,6 +2538,8 @@ postfix_expr_array:
     push x2                     // Protect X2
     adr x9, current_target      // ARRAY = current_target
     ldr x0, [x9]
+    cmp x0, 0                   // Check for bad target
+    b.eq Exit_Failure           // Cannot subscript unknown target
     push x0                     // Protect it
 
     adr x0, expression          // Using expression
@@ -2504,6 +2548,9 @@ postfix_expr_array:
     pop x1                      // Restore array
     adr x9, current_target      // current_target = ARRAY
     str x1, [x9]
+    ldr x0, [x1,24]             // current_target->INDIRECT
+    cmp x0, 0                   // Check for scalar subscript
+    b.eq Exit_Failure           // Arrays require an indirect type
 
     adr x2, postfix_expr_array_string_0 // ASSIGN = "DEREF_X0\n"
 
@@ -2525,6 +2572,8 @@ postfix_expr_array_large:
     adr x9, current_target      // Using current_target
     ldr x0, [x9]
     ldr x0, [x0,24]             // current_target->INDIRECT
+    cmp x0, 0                   // Check for scalar subscript
+    b.eq Exit_Failure           // Cannot scale without an indirect type
     ldr x0, [x0,8]              // current_target->INDIRECT->SIZE
     bl ceil_log2                // ceil_log2(current_target->indirect->size)
     bl numerate_number          // numerate_number(ceil_log2(current_target->indirect->size))
@@ -2543,6 +2592,8 @@ postfix_expr_array_common:
 
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
+    cmp x1, 0                   // Check for EOF
+    b.eq postfix_expr_array_done // Treat it as not being an assignment
     ldr x1, [x1,16]             // global_token->S
     adr x0, equal               // Using "="
     bl match                    // IF global_token->S == "="
@@ -2610,10 +2661,14 @@ postfix_expr_arrow:
     ldr x0, [x0]                // global_token->NEXT
     adr x9, global_token        // global_token = global_token->NEXT
     str x0, [x9]
+    cmp x0, 0                   // Check for EOF
+    b.eq Exit_Failure           // Abort on missing member name
 
     ldr x1, [x0,16]             // Using global_token->S
     adr x9, current_target      // Using current_target
     ldr x0, [x9]
+    cmp x0, 0                   // Check for unknown target
+    b.eq Exit_Failure           // Abort hard
     bl lookup_member            // lookup_member(current_target, global_token->s)
     mov x1, x0                  // struct type* I = lookup_member(current_target, global_token->s)
 
@@ -2626,6 +2681,7 @@ postfix_expr_arrow:
     ldr x0, [x0]                // global_token->NEXT
     adr x9, global_token        // global_token = global_token->NEXT
     str x0, [x9]
+    bl require_global_token     // Ensure global_token is not EOF
 
     ldr x0, [x1,16]             // I->OFFSET
     cmp x0, 0                   // IF 0 != I->OFFSET
@@ -2650,12 +2706,15 @@ postfix_expr_arrow_first:
     // Last chance for load
     adr x9, global_token        // Using global_token
     ldr x0, [x9]
+    cmp x0, 0                   // Check for EOF
+    b.eq postfix_expr_arrow_load // Treat it as not being an assignment
     ldr x1, [x0,16]             // global_token->S
     adr x0, equal               // Using "="
     bl match                    // IF global_token->S == "="
     cmp x0, 0                   // Then we have assignment and should not load
     b.eq postfix_expr_arrow_done // Be done
 
+postfix_expr_arrow_load:
     // Deal with load case
     adr x0, postfix_expr_arrow_string_3 // Using "DEREF_X0\n"
     bl emit_out                 // Emit it
@@ -2670,6 +2729,7 @@ postfix_expr_arrow_done:
 // Returns nothing
 primary_expr:
     push x30
+    bl require_global_token       // Ensure global_token is not EOF
     push x1                     // Protect X1
 
     adr x9, global_token        // Using global_token
@@ -2825,6 +2885,7 @@ primary_expr_done:
 // Uses X0 for struct token_list* a and X2 for char* S
 primary_expr_variable:
     push x30
+    bl require_global_token       // Ensure global_token is not EOF
     push x1                     // Protect X1
     push x2                     // Protect X2
     adr x9, global_token        // Using global_token
@@ -2925,6 +2986,7 @@ primary_expr_variable_done:
 // Uses X2 for char* S, X3 for int BOOL, X5 for PASSED
 function_call:
     push x30
+    bl require_global_token       // Ensure global_token is not EOF
     push x1                     // Protect X1
     push x2                     // Protect X2
     push x3                     // Protect X3
@@ -2937,6 +2999,7 @@ function_call:
     adr x1, open_paren          // Using "("
     bl require_match            // Make sure we have it
 
+    bl require_global_token       // Ensure argument list is present
     adr x0, function_call_string_1 // Using "PUSH_X16\t# Protect a tmp register we're going to use\n"
     bl emit_out                 // Emit it
 
@@ -2964,6 +3027,7 @@ function_call:
     mov x5, 1                   // PASSED = 1
 
 function_call_gen_iter:
+    bl require_global_token       // Ensure global_token is not EOF
     adr x9, global_token        // Using global_token
     ldr x0, [x9]
     ldr x0, [x0,16]             // global_token->S
@@ -2977,6 +3041,7 @@ function_call_gen_iter:
     adr x9, global_token        // global_token = global_token->NEXT
     str x0, [x9]
 
+    bl require_global_token       // Ensure argument follows comma
     bl expression               // Collect the argument
 
     adr x0, function_call_string_5 // Using "PUSH_X0\t#_process_expression2\n"
@@ -3079,6 +3144,7 @@ variable_load:
     push x2                     // Protect X2
     mov x2, x0                  // Protect A
 
+    bl require_global_token     // EOF means not a call
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
     ldr x1, [x1,16]             // global_token->S
@@ -3117,6 +3183,7 @@ variable_load_regular:
     bl emit_out                 // Emit it
 
     // Check for special case of assignment
+    bl require_global_token     // EOF means not an assignment
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
     ldr x1, [x1,16]             // global_token->S
@@ -3145,6 +3212,7 @@ function_load:
     push x2                     // Protect X2
     ldr x0, [x0,16]             // A->S
     mov x2, x0                  // Protect A->S
+    bl require_global_token     // EOF means not a call
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
     ldr x1, [x1,16]             // global_token->S
@@ -3199,6 +3267,7 @@ global_load:
     adr x0, global_load_string_1 // Using "\n"
     bl emit_out                 // Emit it
 
+    bl require_global_token     // EOF means not an assignment
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
     ldr x1, [x1,16]             // global_token->S
@@ -3519,12 +3588,22 @@ common_recursion:
     ret
 
 
+// require_global_token function
+// Aborts if global_token is NULL before callers dereference it
+require_global_token:
+    adr x9, global_token
+    ldr x0, [x9]
+    cmp x0, 0
+    b.eq Exit_Failure
+    ret
+
 // require_match function
 // Receives char* message in X0 and char* required in X1
 // Returns nothing
 // Uses X2 to hold message and updates global_token
 require_match:
     push x30
+    bl require_global_token       // Ensure global_token is not EOF
     push x1                     // Protect X1
     push x2                     // Protect X2
     mov x2, x0                  // put the message somewhere safe
@@ -3982,6 +4061,7 @@ hex1:
 // Uses X2 for STRUCT TYPE* RET
 type_name:
     push x30
+    bl require_global_token       // Ensure global_token is not EOF
     push x1                     // Protect X1
     push x2                     // Protect X2
     adr x9, global_token        // Using global_token
@@ -3999,6 +4079,8 @@ type_name:
     ldr x1, [x1]                // global_token->next
     adr x9, global_token        // global_token = global_token->next
     str x1, [x9]
+    cmp x1, 0                   // Check for EOF
+    b.eq Exit_Failure           // Abort on missing struct name
     ldr x0, [x1,16]             // global_token->S
     adr x9, global_types        // get all known types
     ldr x1, [x9]
@@ -4041,11 +4123,14 @@ type_name_native:
     b Exit_Failure              // Abort
 
 type_name_common:
+    bl require_global_token     // Ensure global_token is not EOF
     adr x9, global_token        // Using global_token
     ldr x1, [x9]
     ldr x1, [x1]                // global_token->next
     adr x9, global_token        // global_token = global_token->next
     str x1, [x9]
+    cmp x1, 0                   // Check for EOF
+    b.eq type_name_done         // No more pointer qualifiers
 
 type_name_iter:
     ldr x0, [x1,16]             // global_token->S
@@ -4060,6 +4145,8 @@ type_name_iter:
     ldr x1, [x1]                // global_token->next
     adr x9, global_token        // global_token = global_token->next
     str x1, [x9]
+    cmp x1, 0                   // Check for EOF
+    b.eq type_name_done         // No more pointer qualifiers
     b type_name_iter            // keep looping
 
 type_name_done:
@@ -4134,6 +4221,8 @@ create_struct:
 
     str x4, [x3,24]             // HEAD->INDIRECT = I
     str x3, [x4,24]             // I->INDIRECT = HEAD
+    str x3, [x3,40]             // HEAD->TYPE = HEAD
+    str x4, [x4,40]             // I->TYPE = I
 
     adr x9, global_types        // Using global_types
     ldr x0, [x9]
@@ -4157,6 +4246,7 @@ create_struct:
     mov x5, 0                   // LAST = NULL
 
 create_struct_iter:
+    bl require_global_token       // Ensure global_token is not EOF
     adr x9, global_token        // Using global_token
     ldr x0, [x9]
     ldr x0, [x0,16]             // global_token->S
@@ -4262,6 +4352,7 @@ lookup_member_fail:
 // Uses X2 for struct type* member_type and X3 for struct type* I
 build_member:
     push x30
+    bl require_global_token       // Ensure global_token is not EOF
     push x1                     // Protect X1
     push x2                     // Protect X2
     push x3                     // Protect X3
@@ -4275,6 +4366,7 @@ build_member:
     bl type_name                // Get member_type
     mov x2, x0                  // Put in place
     str x2, [x3,40]             // I->TYPE = MEMBER_TYPE
+    bl require_global_token     // Ensure member name exists
     adr x9, global_token        // Using global_token
     ldr x0, [x9]
     ldr x1, [x0,16]             // global_token->S
@@ -4282,6 +4374,8 @@ build_member:
     ldr x0, [x0]                // global_token->NEXT
     adr x9, global_token        // global_token = global_token->NEXT
     str x0, [x9]
+    cmp x0, 0                   // Check for EOF
+    b.eq build_member_non_array // Let caller report missing semicolon
 
     // Check if we have an array
     ldr x1, [x0,16]             // global_token->S
@@ -4290,17 +4384,21 @@ build_member:
     cmp x0, 0                   // Then we have to deal with arrays in our structs
     b.eq build_member_array     // So deal with that pain
 
+build_member_non_array:
     // Deal with non-array case
     ldr x0, [x2,8]              // member_type->SIZE
     str x0, [x3,8]              // I->SIZE = member_type->SIZE
     b build_member_done         // Be done
 
 build_member_array:
+    bl require_global_token     // Ensure global_token is not EOF
     adr x9, global_token        // Using global_token
     ldr x0, [x9]
     ldr x0, [x0]                // global_token->NEXT
     adr x9, global_token        // global_token = global_token->NEXT
     str x0, [x9]
+    cmp x0, 0                   // Check for EOF
+    b.eq Exit_Failure           // Require an array size after [
 
     ldr x0, [x0,16]             // global_token->S
     bl numerate_string          // convert number
